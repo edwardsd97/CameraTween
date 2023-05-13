@@ -155,7 +155,7 @@ public class CameraTween : MonoBehaviour
 
     public static void GetAngleAxis(Quaternion q, out Vector3 axis, out float angle)
     {
-        if (q.w > 1) q = QuaternionUtil.Normalize(q);
+        q.Normalize();
 
         //get as doubles for precision
         var qw = (double)q.w;
