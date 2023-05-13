@@ -17,8 +17,6 @@ public class CameraTween : MonoBehaviour
         public Quaternion m_RotVel;
         public Vector3 m_AngVel;
 
-        public Quaternion m_TweenRot;
-        public float m_TweenStart;
         public float m_TweenEnd;
 
         public CamState(CamState target, Transform trans)
@@ -31,9 +29,7 @@ public class CameraTween : MonoBehaviour
 
         public void StartTween(float duration)
         {
-            m_TweenStart = Time.time;
-            m_TweenEnd = Time.time + 1.0f;
-            m_TweenRot = m_Rot;
+            m_TweenEnd = Time.time + duration;
         }
 
         public void Teleport(Transform transform)
@@ -114,11 +110,11 @@ public class CameraTween : MonoBehaviour
     void UpdatePlayer(CamState state)
     {
         Vector3 posVelocity = Vector3.zero;
-        Quaternion rotVelocity= Quaternion.identity;
+        Quaternion rotVelocityTick = Quaternion.identity;
 
         float rotSpeed = 360.0f;
         Vector3 mouseDelta = new Vector3( Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"), 0 );
-        rotVelocity = Quaternion.Euler(-mouseDelta.y * rotSpeed * Time.deltaTime, mouseDelta.x * rotSpeed * Time.deltaTime, 0);
+        rotVelocityTick = Quaternion.Euler(-mouseDelta.y * rotSpeed * Time.deltaTime, mouseDelta.x * rotSpeed * Time.deltaTime, 0);
 
         if (Input.GetKey(KeyCode.W))
 			posVelocity = posVelocity + Vector3.forward;
@@ -131,7 +127,11 @@ public class CameraTween : MonoBehaviour
 
 		posVelocity = posVelocity * 5.0f;
 
-        state.m_Rot = state.m_Rot * rotVelocity;
+        Quaternion newRot = state.m_Rot * rotVelocityTick;
+        state.m_AngVel = state.AngularVelocity(state.m_Rot, newRot, Time.deltaTime);
+        state.m_RotVel = Quaternion.Euler( state.m_AngVel );
+
+        state.m_Rot = newRot;
 
         posVelocity = state.m_Rot * posVelocity; // align local movement to current rotation space
 
@@ -153,17 +153,21 @@ public class CameraTween : MonoBehaviour
         else
         {
             float timeLeft = state.m_TweenEnd - Time.time;
-            float timeTotal = state.m_TweenEnd - state.m_TweenStart;
 
-            Quaternion tgtRotVel = Quaternion.Euler(state.m_Target.m_AngVel * Time.deltaTime);
-
+            // Update tween state based on current input coming from the player
             Vector3 newPos = state.m_Pos + state.m_Target.m_PosVel * Time.deltaTime;
-            state.m_TweenRot = state.m_TweenRot * tgtRotVel; // m_RotVel is already scaled for deltaTime
+//            Quaternion tgtRotVel = Quaternion.Euler(state.m_Target.m_AngVel * Time.deltaTime);
+//            Quaternion newRot = state.m_Rot * tgtRotVel;
+            Quaternion newRot = state.m_Rot;
 
+            // Smoothdamp toward target
             newPos = SmoothDamp(newPos, state.m_Target.m_Pos, ref state.m_PosVel, timeLeft, Time.deltaTime);
+            newRot = SmoothDamp(newRot, state.m_Target.m_Rot, ref state.m_RotVel, timeLeft, Time.deltaTime);
 
-            Quaternion newRot = SmoothDamp(state.m_Rot, state.m_Target.m_Rot, ref state.m_RotVel, timeLeft, Time.deltaTime);
+            // Dont need this but just keeping it up to date
+            state.m_AngVel = state.AngularVelocity(state.m_Rot, newRot, Time.deltaTime);
 
+            // update current pos and rotation
             state.m_Pos = newPos;
             state.m_Rot = newRot;
         }
