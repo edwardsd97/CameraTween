@@ -14,17 +14,53 @@ public class CameraTween : MonoBehaviour
         public Quaternion m_Rot;
 
         public Vector3 m_PosVel;
-        public Quaternion m_RotVel = Quaternion.identity;
+        public Quaternion m_RotVel;
+        public Vector3 m_AngVel;
 
+        public Quaternion m_TweenRot;
         public float m_TweenStart;
         public float m_TweenEnd;
 
-        public CamState( CamState target, Transform trans )
+        public CamState(CamState target, Transform trans)
         {
             m_Target = target;
 
             m_Pos = trans.position;
             m_Rot = trans.rotation;
+        }
+
+        public void StartTween(float duration)
+        {
+            m_TweenStart = Time.time;
+            m_TweenEnd = Time.time + 1.0f;
+            m_TweenRot = m_Rot;
+        }
+
+        public void Teleport(Transform transform)
+        {
+            m_Pos = transform.position;
+            m_Rot = transform.rotation;
+        }
+
+        /// Get the rotation that would be applied to 'start' to end up at 'end'.
+        public static Quaternion FromToRotation(Quaternion start, Quaternion end)
+        {
+            return Quaternion.Inverse(start) * end;
+        }
+
+        public Vector3 AngularVelocity(Quaternion from, Quaternion to, float overTime)
+        {
+            Quaternion delta = FromToRotation( from, to );
+            return AngularVelocity(delta, overTime);
+        }
+
+        public Vector3 AngularVelocity(Quaternion rotationDelta, float overTime)
+        {
+            Vector3 axis;
+            float angle;
+            QuaternionUtil.GetAngleAxis(rotationDelta, out axis, out angle);
+            Vector3 result = Quaternion.AngleAxis(angle / overTime, axis ).eulerAngles;
+            return result;
         }
     }
 
@@ -46,27 +82,28 @@ public class CameraTween : MonoBehaviour
 
         UpdateTween( m_State[1] );
 
-        if (Input.GetMouseButtonDown(2))
+        if (Input.GetMouseButtonDown(0))
         {
-            // teleport and tween at the same time
-            m_State[1].m_TweenEnd = Time.time + 1.0f;
-            m_State[1].m_TweenStart = Time.time;
+            // Left Mouse
             m_Target++;
-            m_State[0].m_Pos = m_Targets[m_Target % m_Targets.Count].transform.position;
+            m_State[0].Teleport(m_Targets[m_Target % m_Targets.Count].transform);
         }
 
         if ( Input.GetMouseButtonDown(1) ) 
         {
-            // tween
-            m_State[1].m_TweenEnd = Time.time + 1.0f;
-            m_State[1].m_TweenStart = Time.time;
+            // Right mouse
+            m_State[1].StartTween(1.0f);
         }
 
-        if (Input.GetMouseButtonDown(0))
+        if (Input.GetMouseButtonDown(2))
         {
-            // teleport
+            // Middle Mouse
+
+            // teleport and tween at the same time
+            m_State[1].StartTween(1.0f);
+
             m_Target++;
-            m_State[0].m_Pos = m_Targets[m_Target % m_Targets.Count].transform.position;
+            m_State[0].Teleport(m_Targets[m_Target % m_Targets.Count].transform);
         }
 
         // Update the transform to match the tween state always
@@ -79,8 +116,9 @@ public class CameraTween : MonoBehaviour
         Vector3 posVelocity = Vector3.zero;
         Quaternion rotVelocity= Quaternion.identity;
 
-        float rotSpeed = 60.0f;
-        rotVelocity = Quaternion.Euler(Input.mouseScrollDelta.y * rotSpeed * Time.deltaTime, Input.mouseScrollDelta.x * rotSpeed * Time.deltaTime, 0);
+        float rotSpeed = 360.0f;
+        Vector3 mouseDelta = new Vector3( Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"), 0 );
+        rotVelocity = Quaternion.Euler(-mouseDelta.y * rotSpeed * Time.deltaTime, mouseDelta.x * rotSpeed * Time.deltaTime, 0);
 
         if (Input.GetKey(KeyCode.W))
 			posVelocity = posVelocity + Vector3.forward;
@@ -93,140 +131,86 @@ public class CameraTween : MonoBehaviour
 
 		posVelocity = posVelocity * 5.0f;
 
-        state.m_Pos = state.m_Pos + posVelocity * Time.deltaTime;
-		state.m_Rot = rotVelocity * state.m_Rot;
-	}
+        state.m_Rot = state.m_Rot * rotVelocity;
 
-	void UpdateTween(CamState state)
+        posVelocity = state.m_Rot * posVelocity; // align local movement to current rotation space
+
+        state.m_Pos = state.m_Pos + posVelocity * Time.deltaTime;
+        state.m_PosVel = posVelocity;
+    }
+
+    void UpdateTween(CamState state)
 	{
         if ( state.m_TweenEnd <= Time.time )
         {
             state.m_PosVel = (state.m_Target.m_Pos - state.m_Pos) / Time.deltaTime;
-			state.m_RotVel = state.m_Target.m_Rot * Quaternion.Inverse( state.m_Rot );
+            state.m_AngVel = state.AngularVelocity(state.m_Rot, state.m_Target.m_Rot, Time.deltaTime);
+            state.m_RotVel = Quaternion.Euler(state.m_AngVel);
 
 			state.m_Pos = state.m_Target.m_Pos;
             state.m_Rot = state.m_Target.m_Rot;
         }
-        else if (state.m_TweenStart > 0.0f)
+        else
         {
-#if false
-            float dt = Time.deltaTime;
-            float time = state.m_TweenEnd - Time.time;
-            float elapsedTime = Time.time - state.m_TweenStart;
-            float duration = state.m_TweenEnd - state.m_TweenStart;
-
-			Vector3 distance = state.m_Target.m_Pos - state.m_Pos;
-
-            // Calculate the damping factor based on the elapsed time and a sin wave starting at full, going to zero, and coming back to full
-            //float damping = Mathf.Clamp01(Mathf.Sin((Mathf.PI * 0.5f) + (Mathf.PI * 2.0f) * (elapsedTime / duration)));
-
-            Vector3 acceleration = 2.0f * (distance - state.m_PosVel * time) / (time * time);// * (1.0f - damping);
-
-			Vector3 newPos = state.m_Pos + state.m_PosVel * dt + 0.5f * acceleration * dt * dt;
-			state.m_PosVel = (newPos - state.m_Pos) / dt;
-            state.m_Pos = newPos;
-#elif false
-            float dt = Time.deltaTime;
             float timeLeft = state.m_TweenEnd - Time.time;
+            float timeTotal = state.m_TweenEnd - state.m_TweenStart;
 
-            Vector3 distance = state.m_Target.m_Pos - state.m_Pos;
+            Quaternion tgtRotVel = Quaternion.Euler(state.m_Target.m_AngVel * Time.deltaTime);
 
-            Vector3 targetVel = distance / dt;
+            Vector3 newPos = state.m_Pos + state.m_Target.m_PosVel * Time.deltaTime;
+            state.m_TweenRot = state.m_TweenRot * tgtRotVel; // m_RotVel is already scaled for deltaTime
 
-            float coef = Mathf.Min( 1.0f, dt / timeLeft );
+            newPos = SmoothDamp(newPos, state.m_Target.m_Pos, ref state.m_PosVel, timeLeft, Time.deltaTime);
 
-            state.m_PosVel = Vector3.Lerp(state.m_PosVel, targetVel, coef * coef);
-
-            Vector3 newPos = state.m_Pos + state.m_PosVel * dt;
+            Quaternion newRot = SmoothDamp(state.m_Rot, state.m_Target.m_Rot, ref state.m_RotVel, timeLeft, Time.deltaTime);
 
             state.m_Pos = newPos;
-#elif false
-            float dt = Time.deltaTime;
-            float timeRemaining = state.m_TweenEnd - Time.time;
-
-            Vector3 currentPos = state.m_Pos;
-            Vector3 targetPos = state.m_Target.m_Pos;
-
-            Vector3 distance = targetPos - currentPos;
-
-            float timeRatio = 1.0f - Mathf.Clamp01((timeRemaining - dt) / timeRemaining);
-            float easingFactor = SmoothStep(timeRatio);
-            currentPos = Vector3.Lerp(currentPos, targetPos, easingFactor);
-
-            state.m_Pos = currentPos;
-#else
-            float timeLeft = state.m_TweenEnd - Time.time;
-            Vector3 newPos = SmoothDampSimple(state.m_Pos, state.m_Target.m_Pos, ref state.m_PosVel, timeLeft, Time.deltaTime);
-            state.m_Pos = newPos;
-#endif
+            state.m_Rot = newRot;
         }
     }
 
-    float SmoothStep(float x)
+    public static float SmoothDamp(float current, float target, ref float currentVelocity, float smoothTime, float deltaTime)
     {
-        return x * x * (3.0f - 2.0f * x);
+        // Based on Game Programming Gems 4 Chapter 1.10
+        // https://archive.org/details/game-programming-gems-4/page/95/mode/2up
+
+        smoothTime = Mathf.Max(Mathf.Epsilon, smoothTime);
+        float omega = 2f / smoothTime;
+
+        float x = omega * deltaTime;
+        float exp = 1f / (1f + x + 0.48f * x * x + 0.235f * x * x * x);
+        float change = current - target;
+        if (Mathf.Abs(change) <= Mathf.Epsilon)
+        {
+            currentVelocity = 0;
+            return current;
+        }
+
+        float originalTo = target;
+
+        target = current - change;
+
+        float temp = (currentVelocity + omega * change) * deltaTime;
+        currentVelocity = (currentVelocity - omega * temp) * exp;
+        float output = target + (change + temp) * exp;
+
+        // Prevent overshooting
+        if (originalTo - current > 0.0f == output > originalTo)
+        {
+            output = originalTo;
+            currentVelocity = (output - originalTo) / deltaTime;
+        }
+
+        return output;
     }
 
     public static Vector3 SmoothDamp(Vector3 currentPosition, Vector3 targetPosition, ref Vector3 currentVelocity, float smoothTime, float deltaTime)
     {
-        float epsilon = 0.0001f;
-        float smoothTimeClamped = Mathf.Max(epsilon, smoothTime);
+        // Based on Game Programming Gems 4 Chapter 1.10
+        // https://archive.org/details/game-programming-gems-4/page/95/mode/2up
 
-        float omega = 2f / smoothTimeClamped;
-        float x = omega * deltaTime;
-
-        float gain = 1f / (1f + x + 0.48f * x * x + 0.235f * x * x * x);
-
-        float distanceX = currentPosition.x - targetPosition.x;
-        float distanceY = currentPosition.y - targetPosition.y;
-        float distanceZ = currentPosition.z - targetPosition.z;
-
-        Vector3 target = targetPosition;
-
-        target.x = currentPosition.x - distanceX;
-        target.y = currentPosition.y - distanceY;
-        target.z = currentPosition.z - distanceZ;
-
-        float velocityX = currentVelocity.x + omega * distanceX * deltaTime;
-        float velocityY = currentVelocity.y + omega * distanceY * deltaTime;
-        float velocityZ = currentVelocity.z + omega * distanceZ * deltaTime;
-
-        currentVelocity.x = (currentVelocity.x - omega * velocityX * deltaTime) * gain;
-        currentVelocity.y = (currentVelocity.y - omega * velocityY * deltaTime) * gain;
-        currentVelocity.z = (currentVelocity.z - omega * velocityZ * deltaTime) * gain;
-
-        float nextPositionX = target.x + (distanceX + velocityX) * gain;
-        float nextPositionY = target.y + (distanceY + velocityY) * gain;
-        float nextPositionZ = target.z + (distanceZ + velocityZ) * gain;
-
-        float currentPositionToTargetX = targetPosition.x - currentPosition.x;
-        float currentPositionToTargetY = targetPosition.y - currentPosition.y;
-        float currentPositionToTargetZ = targetPosition.z - currentPosition.z;
-
-        float nextPositionToTargetX = nextPositionX - targetPosition.x;
-        float nextPositionToTargetY = nextPositionY - targetPosition.y;
-        float nextPositionToTargetZ = nextPositionZ - targetPosition.z;
-
-        float dot = currentPositionToTargetX * nextPositionToTargetX + currentPositionToTargetY * nextPositionToTargetY + currentPositionToTargetZ * nextPositionToTargetZ;
-
-        if (dot > 0f)
-        {
-            nextPositionX = targetPosition.x;
-            nextPositionY = targetPosition.y;
-            nextPositionZ = targetPosition.z;
-
-            currentVelocity.x = currentPositionToTargetX / deltaTime;
-            currentVelocity.y = currentPositionToTargetY / deltaTime;
-            currentVelocity.z = currentPositionToTargetZ / deltaTime;
-        }
-
-        return new Vector3(nextPositionX, nextPositionY, nextPositionZ);
-    }
-
-    public static Vector3 SmoothDampSimple(Vector3 currentPosition, Vector3 targetPosition, ref Vector3 currentVelocity, float smoothTime, float deltaTime)
-    {
         // Calculate the smoothed time.
-        float smoothTimeClamped = Mathf.Max(0.0001f, smoothTime);
+        float smoothTimeClamped = Mathf.Max(Mathf.Epsilon, smoothTime);
 
         // Calculate the angular frequency.
         float omega = 2f / smoothTimeClamped;
@@ -237,6 +221,12 @@ public class CameraTween : MonoBehaviour
 
         // Calculate the target and velocity.
         Vector3 distance = currentPosition - targetPosition;
+        if (distance.sqrMagnitude < Mathf.Epsilon)
+        {
+            currentVelocity = Vector3.zero;
+            return currentPosition;
+        }
+
         Vector3 target = currentPosition - distance;
         Vector3 velocity = currentVelocity + omega * distance * deltaTime;
 
@@ -260,5 +250,40 @@ public class CameraTween : MonoBehaviour
         return nextPosition;
     }
 
+    public static Quaternion SmoothDamp(Quaternion rot, Quaternion target, ref Quaternion deriv, float time, float deltaTime)
+    {
+        if (Time.deltaTime < Mathf.Epsilon)
+            return rot;
+
+        if ( rot.normalized == target.normalized )
+        {
+            deriv = Quaternion.identity;
+            return target;
+        }
+
+        // account for double-cover
+        var Dot = Quaternion.Dot(rot, target);
+        var Multi = Dot > 0f ? 1f : -1f;
+        target.x *= Multi;
+        target.y *= Multi;
+        target.z *= Multi;
+        target.w *= Multi;
+        // smooth damp (nlerp approx)
+        var Result = new Vector4(
+            SmoothDamp(rot.x, target.x, ref deriv.x, time, deltaTime),
+            SmoothDamp(rot.y, target.y, ref deriv.y, time, deltaTime),
+            SmoothDamp(rot.z, target.z, ref deriv.z, time, deltaTime),
+            SmoothDamp(rot.w, target.w, ref deriv.w, time, deltaTime)
+        ).normalized;
+
+        // ensure deriv is tangent
+        var derivError = Vector4.Project(new Vector4(deriv.x, deriv.y, deriv.z, deriv.w), Result);
+        deriv.x -= derivError.x;
+        deriv.y -= derivError.y;
+        deriv.z -= derivError.z;
+        deriv.w -= derivError.w;
+
+        return new Quaternion(Result.x, Result.y, Result.z, Result.w);
+    }
 }
 
