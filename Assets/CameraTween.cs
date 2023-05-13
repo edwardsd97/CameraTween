@@ -1,5 +1,3 @@
-using System;
-using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -8,8 +6,6 @@ public class CameraTween : MonoBehaviour
 {
     public class CamState
     {
-        public CamState m_Target;
-
         public Vector3 m_Pos;
         public Quaternion m_Rot;
 
@@ -17,94 +13,70 @@ public class CameraTween : MonoBehaviour
         public Quaternion m_RotVel;
         public Vector3 m_AngVel;
 
+        public float m_TweenStart;
         public float m_TweenEnd;
 
-        public CamState(CamState target, Transform trans)
+        public CamState(Transform trans)
         {
-            m_Target = target;
-
             m_Pos = trans.position;
             m_Rot = trans.rotation;
         }
 
         public void StartTween(float duration)
         {
+            m_TweenStart = Time.time;
             m_TweenEnd = Time.time + duration;
         }
 
-        public void Teleport(Transform transform)
+        public void Teleport(Transform toTransform)
         {
-            m_Pos = transform.position;
-            m_Rot = transform.rotation;
-        }
-
-        /// Get the rotation that would be applied to 'start' to end up at 'end'.
-        public static Quaternion FromToRotation(Quaternion start, Quaternion end)
-        {
-            return Quaternion.Inverse(start) * end;
-        }
-
-        public Vector3 AngularVelocity(Quaternion from, Quaternion to, float overTime)
-        {
-            Quaternion delta = FromToRotation( from, to );
-            return AngularVelocity(delta, overTime);
-        }
-
-        public Vector3 AngularVelocity(Quaternion rotationDelta, float overTime)
-        {
-            Vector3 axis;
-            float angle;
-            QuaternionUtil.GetAngleAxis(rotationDelta, out axis, out angle);
-            Vector3 result = Quaternion.AngleAxis(angle / overTime, axis ).eulerAngles;
-            return result;
+            m_Pos = toTransform.position;
+            m_Rot = toTransform.rotation;
         }
     }
 
-    public CamState[] m_State = new CamState[2];
+    public CamState m_PlayState;    // Controlled by game play
+    public CamState m_TweenState;   // Tween simulation state
+
     public List<GameObject> m_Targets = new List<GameObject>();
     protected int m_Target = 0;
 
     // Start is called before the first frame update
     void Start()
     {
-        m_State[0] = new CamState(null, transform);
-        m_State[1] = new CamState(m_State[0], transform);
+        m_PlayState = new CamState(transform);
+        m_TweenState = new CamState(transform);
     }
 
     // Update is called once per frame
     void Update()
     {
-        UpdatePlayer( m_State[0] );
+        UpdatePlayer(m_PlayState);
 
-        UpdateTween( m_State[1] );
+        UpdateTween(m_TweenState, m_PlayState);
 
         if (Input.GetMouseButtonDown(0))
         {
             // Left Mouse
-            m_Target++;
-            m_State[0].Teleport(m_Targets[m_Target % m_Targets.Count].transform);
+            m_PlayState.Teleport(m_Targets[m_Target++ % m_Targets.Count].transform);
         }
 
         if ( Input.GetMouseButtonDown(1) ) 
         {
             // Right mouse
-            m_State[1].StartTween(1.0f);
+            m_TweenState.StartTween(1.0f);
         }
 
         if (Input.GetMouseButtonDown(2))
         {
             // Middle Mouse
-
-            // teleport and tween at the same time
-            m_State[1].StartTween(1.0f);
-
-            m_Target++;
-            m_State[0].Teleport(m_Targets[m_Target % m_Targets.Count].transform);
+            m_TweenState.StartTween(1.0f);
+            m_PlayState.Teleport(m_Targets[m_Target++ % m_Targets.Count].transform);
         }
 
         // Update the transform to match the tween state always
-        transform.position = m_State[1].m_Pos;
-        transform.rotation = m_State[1].m_Rot;
+        transform.position = m_TweenState.m_Pos;
+        transform.rotation = m_TweenState.m_Rot;
     }
 
     void UpdatePlayer(CamState state)
@@ -127,48 +99,58 @@ public class CameraTween : MonoBehaviour
 
 		posVelocity = posVelocity * 5.0f;
 
-        Quaternion newRot = state.m_Rot * rotVelocityTick;
-        state.m_AngVel = state.AngularVelocity(state.m_Rot, newRot, Time.deltaTime);
-        state.m_RotVel = Quaternion.Euler( state.m_AngVel );
-
-        state.m_Rot = newRot;
+        state.m_Rot = state.m_Rot * rotVelocityTick;
 
         posVelocity = state.m_Rot * posVelocity; // align local movement to current rotation space
 
         state.m_Pos = state.m_Pos + posVelocity * Time.deltaTime;
-        state.m_PosVel = posVelocity;
     }
 
-    void UpdateTween(CamState state)
-	{
-        if ( state.m_TweenEnd <= Time.time )
+    void UpdateTween(CamState tweenState, CamState targetState )
+    {
+        if (tweenState.m_TweenEnd <= Time.time )
         {
-            state.m_PosVel = (state.m_Target.m_Pos - state.m_Pos) / Time.deltaTime;
-            state.m_AngVel = state.AngularVelocity(state.m_Rot, state.m_Target.m_Rot, Time.deltaTime);
-            state.m_RotVel = Quaternion.Euler(state.m_AngVel);
+            // Not Tweening - keep calculating the inferred velocities and position
+            // ---------------------------------------------------------------------
+            tweenState.m_PosVel = ( targetState.m_Pos - tweenState.m_Pos) / Time.deltaTime;
+            tweenState.m_AngVel = AngularVelocity(tweenState.m_Rot, targetState.m_Rot, Time.deltaTime);
+            tweenState.m_RotVel = Quaternion.Euler(tweenState.m_AngVel);
 
-			state.m_Pos = state.m_Target.m_Pos;
-            state.m_Rot = state.m_Target.m_Rot;
+            tweenState.m_Pos = targetState.m_Pos;
+            tweenState.m_Rot = targetState.m_Rot;
         }
         else
         {
-            float timeLeft = state.m_TweenEnd - Time.time;
+            // Tweening
+            // ---------------------------------------------------------------------
+            float timeLeft = tweenState.m_TweenEnd - Time.time;
+            float timeTotal = tweenState.m_TweenEnd - tweenState.m_TweenStart;
 
-            // Update tween state based on current input coming from the player
-            Vector3 newPos = state.m_Pos + state.m_Target.m_PosVel * Time.deltaTime;
-            Quaternion newRot = state.m_Rot;
+            // Smooth timeLeft with a sin lerp
+            float sinLerpTimeLeft = Mathf.Clamp01( timeLeft * (timeLeft / timeTotal) );
+            sinLerpTimeLeft = (Mathf.Sin((sinLerpTimeLeft * Mathf.PI) - (Mathf.PI * 0.5f)) * 0.5f) + 0.5f;
 
             // Smoothdamp toward target
-            newPos = SmoothDamp(newPos, state.m_Target.m_Pos, ref state.m_PosVel, timeLeft, Time.deltaTime);
-            newRot = SmoothDamp(newRot, state.m_Target.m_Rot, ref state.m_RotVel, timeLeft, Time.deltaTime);
+            Vector3 newPos      = SmoothDamp(tweenState.m_Pos, targetState.m_Pos, ref tweenState.m_PosVel, sinLerpTimeLeft, Time.deltaTime);
+            Quaternion newRot   = SmoothDamp(tweenState.m_Rot, targetState.m_Rot, ref tweenState.m_RotVel, sinLerpTimeLeft, Time.deltaTime);
 
-            // Dont need this but just keeping it up to date
-            state.m_AngVel = state.AngularVelocity(state.m_Rot, newRot, Time.deltaTime);
+            // [Dont need this but just keeping it up to date]
+            tweenState.m_AngVel = AngularVelocity(tweenState.m_Rot, newRot, Time.deltaTime);
 
             // update current pos and rotation
-            state.m_Pos = newPos;
-            state.m_Rot = newRot;
+            tweenState.m_Pos = newPos;
+            tweenState.m_Rot = newRot;
         }
+    }
+
+    public static Vector3 AngularVelocity(Quaternion from, Quaternion to, float overTime)
+    {
+        Vector3 axis;
+        float angle;
+        Quaternion delta = Quaternion.Inverse(from) * to;
+        QuaternionUtil.GetAngleAxis(delta, out axis, out angle);
+        Vector3 result = Quaternion.AngleAxis(angle / overTime, axis).eulerAngles;
+        return result;
     }
 
     public static float SmoothDamp(float current, float target, ref float currentVelocity, float smoothTime, float deltaTime)
