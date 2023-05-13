@@ -156,8 +156,6 @@ public class CameraTween : MonoBehaviour
 
             // Update tween state based on current input coming from the player
             Vector3 newPos = state.m_Pos + state.m_Target.m_PosVel * Time.deltaTime;
-//            Quaternion tgtRotVel = Quaternion.Euler(state.m_Target.m_AngVel * Time.deltaTime);
-//            Quaternion newRot = state.m_Rot * tgtRotVel;
             Quaternion newRot = state.m_Rot;
 
             // Smoothdamp toward target
