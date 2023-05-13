@@ -148,9 +148,35 @@ public class CameraTween : MonoBehaviour
         Vector3 axis;
         float angle;
         Quaternion delta = Quaternion.Inverse(from) * to;
-        QuaternionUtil.GetAngleAxis(delta, out axis, out angle);
+        GetAngleAxis(delta, out axis, out angle);
         Vector3 result = Quaternion.AngleAxis(angle / overTime, axis).eulerAngles;
         return result;
+    }
+
+    public static void GetAngleAxis(Quaternion q, out Vector3 axis, out float angle)
+    {
+        if (q.w > 1) q = QuaternionUtil.Normalize(q);
+
+        //get as doubles for precision
+        var qw = (double)q.w;
+        var qx = (double)q.x;
+        var qy = (double)q.y;
+        var qz = (double)q.z;
+        var ratio = System.Math.Sqrt(1.0d - qw * qw);
+
+        angle = (float)(2.0d * System.Math.Acos(qw)) * Mathf.Rad2Deg;
+        if (ratio < 0.001d)
+        {
+            axis = new Vector3(1f, 0f, 0f);
+        }
+        else
+        {
+            axis = new Vector3(
+                (float)(qx / ratio),
+                (float)(qy / ratio),
+                (float)(qz / ratio));
+            axis.Normalize();
+        }
     }
 
     public static float SmoothDamp(float current, float target, ref float currentVelocity, float smoothTime, float deltaTime)

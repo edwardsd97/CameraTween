@@ -118,32 +118,6 @@ public static class QuaternionUtil
         return rot * baseForward;
     }
 
-    public static void GetAngleAxis(this Quaternion q, out Vector3 axis, out float angle)
-    {
-        if (q.w > 1) q = QuaternionUtil.Normalize(q);
-
-        //get as doubles for precision
-        var qw = (double)q.w;
-        var qx = (double)q.x;
-        var qy = (double)q.y;
-        var qz = (double)q.z;
-        var ratio = System.Math.Sqrt(1.0d - qw * qw);
-
-        angle = (float)(2.0d * System.Math.Acos(qw)) * Mathf.Rad2Deg;
-        if (ratio < 0.001d)
-        {
-            axis = new Vector3(1f, 0f, 0f);
-        }
-        else
-        {
-            axis = new Vector3(
-                (float)(qx / ratio),
-                (float)(qy / ratio),
-                (float)(qz / ratio));
-            axis.Normalize();
-        }
-    }
-
     public static void GetShortestAngleAxisBetween(Quaternion a, Quaternion b, out Vector3 axis, out float angle)
     {
         var dq = Quaternion.Inverse(a) * b;
