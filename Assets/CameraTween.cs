@@ -270,7 +270,8 @@ public class CameraTween : MonoBehaviour
         target.y *= Multi;
         target.z *= Multi;
         target.w *= Multi;
-        // smooth damp (nlerp approx)
+
+        // SmoothDamp each value individually
         var Result = new Vector4(
             SmoothDamp(rot.x, target.x, ref deriv.x, time, deltaTime),
             SmoothDamp(rot.y, target.y, ref deriv.y, time, deltaTime),
